@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <title>EL PONG</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body,#root{height:100%}
+    body{background:#000;font-family:'Inter','Segoe UI',system-ui,sans-serif;color:#f0f0f0}
+    *{-webkit-tap-highlight-color:transparent}
+    select option{background:#111}
+    ::-webkit-scrollbar{width:3px;height:3px}
+    ::-webkit-scrollbar-track{background:#000}
+    ::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+    .fade-in{animation:fadeIn .2s ease both}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .slide-in{animation:slideIn .22s cubic-bezier(.4,0,.2,1) both}
+    @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+    .toast-pop{animation:toastPop .2s cubic-bezier(.34,1.56,.64,1) both}
+    @keyframes toastPop{from{opacity:0;transform:translateX(-50%) translateY(12px) scale(.95)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+    button{transition:opacity .12s,transform .1s}
+    button:active{transform:scale(.94)!important;opacity:.85}
+    input:focus,select:focus{outline:none;border-color:#555!important}
+    .pulse{animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef,useCallback}=React;
+
+const C={
+  bg:"#000",surface:"#111",hi:"#1a1a1a",el:"#222",
+  border:"#2a2a2a",borderHi:"#3a3a3a",
+  white:"#f0f0f0",muted:"#666",mutedHi:"#999",
+  win:"#22c55e",lose:"#ef4444",even:"#555",gold:"#f5c518",
+  blue:"#3b82f6",
+};
+
+const LS_SAVED="elpong_saved_v1";
+const LS_LEGACY="elpong_v1";
+const LS_LEGACY2="pingroyale_v3";
+
+function lsGet(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null}catch{return null}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+function getSaved(){return lsGet(LS_SAVED)||[]}
+
+const SB_URL="https://hjjdbrpobjjaqikhbfls.supabase.co";
+const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqamRicnBvYmpqYXFpa2hiZmxzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MzE3MTcsImV4cCI6MjA5NzQwNzcxN30.o7qKVF_14rzaZAo6-beSqcuGIbZOaamsiRo-sAwgYeY";
+
+let _sb=null;
+function getSB(){if(_sb)return _sb;_sb=supabase.createClient(SB_URL,SB_KEY);return _sb}
+
+function computeStats(playerOrder,history){
+  const s={};
+  playerOrder.forEach(n=>{
+    s[n]={wins:0,losses:0,h2h:{},pointsScored:0,pointsConceded:0,currentStreak:0,bestStreak:0};
+    playerOrder.forEach(m=>{if(m!==n)s[n].h2h[m]={w:0,l:0}});
+  });
+  const ord=[...history].sort((a,b)=>a.ts-b.ts);
+  ord.forEach(g=>{
+    const W=s[g.winner],L=s[g.loser];
+    if(!W||!L)return;
+    W.wins++;L.losses++;
+    if(!W.h2h[g.loser])W.h2h[g.loser]={w:0,l:0};
+    if(!L.h2h[g.winner])L.h2h[g.winner]={w:0,l:0};
+    W.h2h[g.loser].w++;L.h2h[g.winner].l++;
+    if(g.winScore!=null){W.pointsScored+=g.winScore;W.pointsConceded+=g.loseScore;L.pointsScored+=g.loseScore;L.pointsConceded+=g.winScore}
+  });
+  playerOrder.forEach(n=>{
+    let cur=0,best=0;
+    ord.forEach(g=>{if(g.winner===n){cur++;if(cur>best)best=cur}else if(g.loser===n)cur=0});
+    s[n].currentStreak=cur;s[n].bestStreak=best;
+  });
+  return s;
+}
+function netG(stats,a,b){const h=stats[a]?.h2h?.[b]||{w:0,l:0};return h.w-h.l}
+function rankP(playerOrder,stats){
+  return[...playerOrder].sort((a,b)=>{
+    const sa=stats[a]||{wins:0,losses:0},sb=stats[b]||{wins:0,losses:0};
+    const ta=sa.wins+sa.losses,tb=sb.wins+sb.losses;
+    const pa=ta>0?sa.wins/ta:-1,pb=tb>0?sb.wins/tb:-1;
+    if(pb!==pa)return pb-pa;
+    return(sb.wins-sb.losses)-(sa.wins-sa.losses);
+  });
+}
+function pct(w,l){if(w+l===0)return null;return Math.round(w/(w+l)*100)}
+function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+function fmtTime(ts){
+  const d=new Date(ts),now=new Date(),diff=(now-d)/1000;
+  if(diff<60)return"just now";
+  if(diff<3600)return Math.floor(diff/60)+"m ago";
+  if(diff<86400)return Math.floor(diff/3600)+"h ago";
+  if(diff<604800)return Math.floor(diff/86400)+"d ago";
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()!==now.getFullYear()?"numeric":undefined});
+}
+
+function migrateLocal(){
+  for(const key of[LS_LEGACY,LS_LEGACY2]){
+    const d=lsGet(key);
+    if(!d)continue;
+    const po=d.playerOrder||(d.players?Object.keys(d.players):[]);
+    const hist=(d.history||[]).map(h=>({...h,id:h.id||uid()}));
+    if(po.length||hist.length)return{playerOrder:po,history:hist};
+  }
+  return null;
+}
+
+const inp=(extra={})=>({background:C.hi,color:C.white,border:"1px solid "+C.border,borderRadius:10,padding:"10px 12px",fontSize:14,outline:"none",width:"100%",...extra});
+const Btn=(bg,col,extra={})=>({border:"none",borderRadius:10,cursor:"pointer",fontWeight:700,background:bg,color:col,...extra});
+const OBtn=(col,extra={})=>({border:"1px solid "+col,borderRadius:10,cursor:"pointer",fontWeight:700,background:"transparent",color:col,...extra});
+
+function App(){
+  const[tournaments,setTournaments]=useState([]);
+  const[activeTid,setActiveTid]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[syncing,setSyncing]=useState(false);
+  const[online,setOnline]=useState(navigator.onLine);
+  const[tab,setTab]=useState("play");
+  const[showTournaments,setShowTournaments]=useState(false);
+
+  const[p1,setP1]=useState("");
+  const[p2,setP2]=useState("");
+  const[score,setScore]=useState([0,0]);
+  const[scoreStarted,setScoreStarted]=useState(false);
+  const[flash,setFlash]=useState(null);
+  const flashRef=useRef(null);
+
+  const[gameModal,setGameModal]=useState(null);
+  const[lgWinner,setLgWinner]=useState("");
+  const[lgLoser,setLgLoser]=useState("");
+  const[lgWinScore,setLgWinScore]=useState("");
+  const[lgLoseScore,setLgLoseScore]=useState("");
+  const[lgBulk,setLgBulk]=useState(1);
+  const[lgDate,setLgDate]=useState("");
+
+  const[showPlayers,setShowPlayers]=useState(false);
+  const[newName,setNewName]=useState("");
+  const[editIdx,setEditIdx]=useState(null);
+  const[editName,setEditName]=useState("");
+
+  const[focusPlayer,setFocusPlayer]=useState(null);
+  const[showAllHistory,setShowAllHistory]=useState(false);
+  const[histFilter,setHistFilter]=useState("");
+
+  const[editTournIdx,setEditTournIdx]=useState(null);
+  const[editTournName,setEditTournName]=useState("");
+
+  const[showShare,setShowShare]=useState(false);
+  const[copied,setCopied]=useState(false);
+
+  const[showNewTourn,setShowNewTourn]=useState(false);
+  const[newTournName,setNewTournName]=useState("");
+
+  // AI Chat
+  const[showAI,setShowAI]=useState(false);
+  const[aiMessages,setAiMessages]=useState([]);
+  const[aiInput,setAiInput]=useState("");
+  const[aiLoading,setAiLoading]=useState(false);
+  const aiEndRef=useRef(null);
+  useEffect(()=>{if(aiEndRef.current)aiEndRef.current.scrollIntoView({behavior:"smooth"})},[aiMessages,aiLoading]);
+
+  // Bracket
+  const[bracket,setBracket]=useState(null);
+  const[bracketLoading,setBracketLoading]=useState(false);
+
+  const[toast,setToast]=useState(null);
+  const toastRef=useRef(null);
+  const subRef=useRef(null);
+
+  useEffect(()=>{
+    const on=()=>setOnline(true);
+    const off=()=>setOnline(false);
+    window.addEventListener("online",on);
+    window.addEventListener("offline",off);
+    return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)};
+  },[]);
+
+  function showToast(msg){
+    setToast(msg);clearTimeout(toastRef.current);
+    toastRef.current=setTimeout(()=>setToast(null),2800);
+  }
+
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const joinId=params.get("join");
+    if(joinId)loadAndJoin(joinId);
+    else loadTournaments();
+  },[]);
+
+  async function loadAndJoin(tid){
+    setLoading(true);
+    const sb=getSB();
+    try{
+      const{data,error}=await sb.from("tournaments").select("*").eq("id",tid).single();
+      if(error||!data){showToast("Tournament not found.");setLoading(false);loadTournaments();return}
+      const t=dbToLocal(data);
+      const savedList=getSaved();
+      let all=[t];
+      if(savedList.length>0){
+        const{data:others}=await sb.from("tournaments").select("*").in("id",savedList.map(s=>s.id));
+        const rest=others?others.map(dbToLocal).filter(x=>x.id!==t.id):[];
+        all=[t,...rest];
+      }
+      setTournaments(all);
+      setActiveTid(tid);
+      pinTournament(tid,t.name);
+      window.history.replaceState({},"",window.location.pathname);
+      showToast("Joined \""+t.name+"\" !");
+    }catch(e){console.error(e);loadTournaments()}
+    setLoading(false);
+  }
+
+  async function loadTournaments(){
+    setLoading(true);
+    const sb=getSB();
+    const savedList=getSaved();
+    let all=[];
+    if(savedList.length>0){
+      const{data}=await sb.from("tournaments").select("*").in("id",savedList.map(s=>s.id));
+      if(data)all=data.map(dbToLocal);
+    }
+    if(all.length===0){
+      const legacy=migrateLocal();
+      const t={id:uid(),name:"Tournament 1",playerOrder:legacy?legacy.playerOrder:[],history:legacy?legacy.history:[]};
+      const{error}=await sb.from("tournaments").upsert(localToDb(t));
+      if(!error){all=[t];pinTournament(t.id,t.name);if(legacy)showToast("Migrated your existing data")}
+    }
+    setTournaments(all);
+    const lastActive=localStorage.getItem("elpong_active");
+    const found=lastActive&&all.find(t=>t.id===lastActive);
+    setActiveTid(found?lastActive:all[0]?.id);
+    setLoading(false);
+  }
+
+  useEffect(()=>{if(activeTid)localStorage.setItem("elpong_active",activeTid)},[activeTid]);
+
+  useEffect(()=>{
+    if(!activeTid)return;
+    const sb=getSB();
+    if(subRef.current){subRef.current.unsubscribe();subRef.current=null}
+    const ch=sb.channel("tourn_"+activeTid)
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"tournaments",filter:"id=eq."+activeTid},(payload)=>{
+        const updated=dbToLocal(payload.new);
+        setTournaments(prev=>prev.map(t=>t.id===activeTid?updated:t));
+      })
+      .subscribe();
+    subRef.current=ch;
+    return()=>{ch.unsubscribe();subRef.current=null};
+  },[activeTid]);
+
+  function dbToLocal(row){return{id:row.id,name:row.name,playerOrder:Array.isArray(row.player_order)?row.player_order:[],history:Array.isArray(row.history)?row.history:[]}}
+  function localToDb(t){return{id:t.id,name:t.name,player_order:t.playerOrder,history:t.history,updated_at:new Date().toISOString()}}
+
+  async function pushUpdate(t){
+    setSyncing(true);
+    try{await getSB().from("tournaments").upsert(localToDb(t))}catch(e){console.error(e)}
+    setSyncing(false);
+  }
+
+  function updateSt(fn){
+    setTournaments(prev=>{
+      const next=prev.map(t=>t.id===activeTid?fn(t):t);
+      const updated=next.find(t=>t.id===activeTid);
+      if(updated)pushUpdate(updated);
+      return next;
+    });
+  }
+
+  function pinTournament(id,name){
+    const list=getSaved();
+    if(list.find(s=>s.id===id))return;
+    lsSet(LS_SAVED,[...list,{id,name,savedAt:Date.now()}]);
+  }
+  function unpinTournament(id){lsSet(LS_SAVED,getSaved().filter(s=>s.id!==id))}
+  const isPinned=(id)=>getSaved().some(s=>s.id===id);
+
+  function switchTab(t){
+    setTab(t);setScoreStarted(false);setScore([0,0]);
+    setFocusPlayer(null);setShowAllHistory(false);setHistFilter("");
+  }
+
+  function openAdd(){setLgWinner("");setLgLoser("");setLgWinScore("");setLgLoseScore("");setLgBulk(1);setLgDate("");setGameModal({mode:"add"})}
+  function openBulk(){setLgWinner("");setLgLoser("");setLgWinScore("");setLgLoseScore("");setLgBulk(1);setLgDate("");setGameModal({mode:"bulk"})}
+  function openEdit(g){
+    setLgWinner(g.winner);setLgLoser(g.loser);
+    setLgWinScore(g.winScore!=null?String(g.winScore):"");
+    setLgLoseScore(g.loseScore!=null?String(g.loseScore):"");
+    setLgDate(new Date(g.ts).toISOString().slice(0,10));
+    setGameModal({mode:"edit",game:g});
+  }
+
+  function submitGame(){
+    if(!lgWinner||!lgLoser||lgWinner===lgLoser)return;
+    const ws=lgWinScore!==""?parseInt(lgWinScore):null;
+    const ls=lgLoseScore!==""?parseInt(lgLoseScore):null;
+    const ts=lgDate?new Date(lgDate).getTime()+43200000:Date.now();
+    if(gameModal.mode==="bulk"){
+      const count=Math.max(1,parseInt(lgBulk)||1);
+      const games=Array.from({length:count},(_,i)=>({id:uid(),winner:lgWinner,loser:lgLoser,winScore:ws,loseScore:ls,ts:ts-i*1000}));
+      updateSt(t=>({...t,history:[...games,...t.history]}));
+      showToast("Added "+count+" game"+(count>1?"s":"")+": "+lgWinner+" beat "+lgLoser);
+    }else if(gameModal.mode==="add"){
+      const game={id:uid(),winner:lgWinner,loser:lgLoser,winScore:ws,loseScore:ls,ts};
+      updateSt(t=>({...t,history:[game,...t.history].sort((a,b)=>b.ts-a.ts)}));
+      showToast(lgWinner+" beat "+lgLoser+(ws!=null?" ("+ws+"-"+ls+")":""));
+    }else{
+      updateSt(t=>({...t,history:t.history.map(h=>h.id===gameModal.game.id?{...h,winner:lgWinner,loser:lgLoser,winScore:ws,loseScore:ls,ts:lgDate?ts:h.ts}:h)}));
+      showToast("Game updated.");
+    }
+    setGameModal(null);
+  }
+
+  function deleteGame(id){
+    updateSt(t=>({...t,history:t.history.filter(h=>h.id!==id)}));
+    showToast("Game removed.");setGameModal(null);
+  }
+
+  function addPt(idx){
+    setScore(prev=>{const n=[...prev];n[idx]++;return n});
+    setFlash(idx);clearTimeout(flashRef.current);
+    flashRef.current=setTimeout(()=>setFlash(null),280);
+  }
+  function subPt(idx){setScore(prev=>{const n=[...prev];n[idx]=Math.max(0,n[idx]-1);return n})}
+  function finishGame(wi){
+    const winner=wi===0?p1:p2,loser=wi===0?p2:p1;
+    const ws=score[wi],ls=score[1-wi];
+    updateSt(t=>({...t,history:[{id:uid(),winner,loser,winScore:ws,loseScore:ls,ts:Date.now()},...t.history]}));
+    showToast(winner+" beat "+loser+" "+ws+"-"+ls);
+    setScore([0,0]);setScoreStarted(false);
+  }
+
+  async function createTournament(name){
+    if(tournaments.length>=5){showToast("Max 5 tournaments");return}
+    const t={id:uid(),name:name||"Tournament "+(tournaments.length+1),playerOrder:[],history:[]};
+    const{error}=await getSB().from("tournaments").insert(localToDb(t));
+    if(error){showToast("Error creating tournament");return}
+    setTournaments(prev=>[...prev,t]);
+    setActiveTid(t.id);pinTournament(t.id,t.name);
+    setShowNewTourn(false);setNewTournName("");switchTab("play");setShowTournaments(false);
+    showToast("Created \""+t.name+"\"");
+  }
+
+  async function renameTournament(idx,name){
+    const t=tournaments[idx];
+    if(!name||name===t.name){setEditTournIdx(null);return}
+    const updated={...t,name};
+    setTournaments(prev=>prev.map((x,i)=>i===idx?updated:x));
+    await pushUpdate(updated);
+    setEditTournIdx(null);showToast("Renamed to \""+name+"\"");
+  }
+
+  async function deleteTournament(id){
+    if(!window.confirm("Delete this tournament and all its data?"))return;
+    await getSB().from("tournaments").delete().eq("id",id);
+    unpinTournament(id);
+    const next=tournaments.filter(t=>t.id!==id);
+    setTournaments(next);
+    if(activeTid===id)setActiveTid(next[0]?.id||null);
+    setShowTournaments(false);showToast("Tournament deleted");
+  }
+
+  function switchToTournament(id){
+    setActiveTid(id);setShowTournaments(false);switchTab("play");setP1("");setP2("");
+  }
+
+  function addPlayer(){
+    const name=newName.trim();
+    if(!name||st.playerOrder.includes(name))return;
+    updateSt(t=>({...t,playerOrder:[...t.playerOrder,name]}));setNewName("");
+  }
+  function removePlayer(name){
+    updateSt(t=>({...t,playerOrder:t.playerOrder.filter(n=>n!==name),history:t.history.filter(h=>h.winner!==name&&h.loser!==name)}));
+    if(focusPlayer===name)setFocusPlayer(null);
+  }
+  function savePlayerEdit(idx){
+    const old=st.playerOrder[idx],name=editName.trim();
+    if(!name||name===old||st.playerOrder.includes(name)){setEditIdx(null);return}
+    updateSt(t=>({...t,playerOrder:t.playerOrder.map(n=>n===old?name:n),history:t.history.map(h=>({...h,winner:h.winner===old?name:h.winner,loser:h.loser===old?name:h.loser}))}));
+    if(focusPlayer===old)setFocusPlayer(name);
+    setEditIdx(null);
+  }
+  function clearAll(){
+    if(!window.confirm("Reset ALL games and stats for this tournament?"))return;
+    updateSt(t=>({...t,history:[]}));showToast("All stats cleared.");
+  }
+
+  // ── AI Chat ──
+  function buildStatsContext(){
+    const lines=[];
+    lines.push("Tournament: "+st.name);
+    lines.push("Players: "+st.playerOrder.join(", "));
+    lines.push("Total games: "+st.history.length);
+    st.playerOrder.forEach(n=>{
+      const s=computeStats(st.playerOrder,st.history)[n]||{wins:0,losses:0,currentStreak:0,bestStreak:0,h2h:{}};
+      const wp=pct(s.wins,s.losses);
+      lines.push(n+": "+s.wins+"W-"+s.losses+"L, win rate "+(wp!==null?wp+"%":"no games")+", current streak "+s.currentStreak+", best streak "+s.bestStreak);
+      st.playerOrder.forEach(opp=>{
+        if(opp===n)return;
+        const h=(s.h2h||{})[opp]||{w:0,l:0};
+        if(h.w+h.l>0)lines.push("  "+n+" vs "+opp+": "+h.w+" wins, "+h.l+" losses");
+      });
+    });
+    return lines.join("\n");
+  }
+
+  async function sendAIMessage(){
+    const msg=aiInput.trim();
+    if(!msg||aiLoading)return;
+    const userMsg={role:"user",content:msg};
+    const newMsgs=[...aiMessages,userMsg];
+    setAiMessages(newMsgs);
+    setAiInput("");
+    setAiLoading(true);
+    try{
+      const sysPrompt="You are an expert ping pong analyst for the EL PONG app. You have access to real tournament data. Be concise, insightful, and fun. When predicting matchups give win probabilities based on head-to-head records and recent form. Here is the current tournament data:\n\n"+buildStatsContext();
+      const body={model:"claude-sonnet-4-6",max_tokens:500,system:sysPrompt,messages:newMsgs};
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const data=await res.json();
+      const reply=data.content&&data.content[0]?data.content[0].text:"Sorry, I could not get a response.";
+      setAiMessages([...newMsgs,{role:"assistant",content:reply}]);
+    }catch(e){
+      setAiMessages([...newMsgs,{role:"assistant",content:"Error connecting to AI. Try again."}]);
+    }
+    setAiLoading(false);
+  }
+
+  // ── Bracket ──
+  function shuffleArr(arr){
+    const a=[...arr];
+    for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+    return a;
+  }
+
+  function nextPowerOf2(n){let p=1;while(p<n)p*=2;return p}
+
+  function buildBracket(seededPlayers){
+    const size=nextPowerOf2(seededPlayers.length);
+    // Pad with byes
+    const padded=[...seededPlayers];
+    while(padded.length<size)padded.push(null);
+    // Build round 1 matchups
+    const r1=[];
+    for(let i=0;i<size;i+=2)r1.push({p1:padded[i],p2:padded[i+1],winner:padded[i+1]===null?padded[i]:null,isBye:padded[i+1]===null});
+    const rounds=[r1];
+    // Placeholder future rounds
+    let prevSize=r1.length;
+    while(prevSize>1){
+      const round=[];
+      for(let i=0;i<prevSize;i+=2)round.push({p1:null,p2:null,winner:null});
+      rounds.push(round);
+      prevSize=round.length;
+    }
+    setBracket({rounds,seededPlayers});
+  }
+
+  function randomBracket(){
+    if(st.playerOrder.length<2){showToast("Need at least 2 players");return}
+    buildBracket(shuffleArr(st.playerOrder));
+  }
+
+  async function aiBracket(){
+    if(st.playerOrder.length<2){showToast("Need at least 2 players");return}
+    setBracketLoading(true);
+    try{
+      const ctx=buildStatsContext();
+      const prompt="Based on this ping pong tournament data, return ONLY a JSON array of player names in seeding order from best to worst (most likely to win first). No explanation, just the JSON array.\n\n"+ctx;
+      const body={model:"claude-sonnet-4-6",max_tokens:200,messages:[{role:"user",content:prompt}]};
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const data=await res.json();
+      const text=data.content&&data.content[0]?data.content[0].text:"[]";
+      const cleaned=text.replace(/```json|```/g,"").trim();
+      let seeded=JSON.parse(cleaned);
+      // Filter to only valid players
+      seeded=seeded.filter(n=>st.playerOrder.includes(n));
+      // Add any missing players at end
+      st.playerOrder.forEach(n=>{if(!seeded.includes(n))seeded.push(n)});
+      buildBracket(seeded);
+    }catch(e){
+      showToast("AI seeding failed, using random");
+      buildBracket(shuffleArr(st.playerOrder));
+    }
+    setBracketLoading(false);
+  }
+
+  function advanceWinner(roundIdx,matchIdx,winner){
+    setBracket(prev=>{
+      const rounds=prev.rounds.map(r=>r.map(m=>({...m})));
+      rounds[roundIdx][matchIdx].winner=winner;
+      // Place winner in next round
+      if(roundIdx+1<rounds.length){
+        const nextMatchIdx=Math.floor(matchIdx/2);
+        const slot=matchIdx%2===0?"p1":"p2";
+        rounds[roundIdx+1][nextMatchIdx][slot]=winner;
+        rounds[roundIdx+1][nextMatchIdx].winner=null;
+      }
+      return{...prev,rounds};
+    });
+  }
+
+  function getShareLink(){return window.location.href.split("?")[0]+"?join="+activeTid}
+  function copyLink(){
+    navigator.clipboard.writeText(getShareLink()).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)}).catch(()=>{});
+  }
+  function shareSMS(){
+    const msg="Join my EL PONG tournament \""+st.name+"\"! "+getShareLink();
+    window.open("sms:?body="+encodeURIComponent(msg));
+  }
+
+  const st=tournaments.find(t=>t.id===activeTid)||{name:"--",playerOrder:[],history:[]};
+  const stats=computeStats(st.playerOrder,st.history);
+  const sortedPlayers=rankP(st.playerOrder,stats);
+  const displayHistory=histFilter?st.history.filter(h=>h.winner===histFilter||h.loser===histFilter):st.history;
+  const canLog=lgWinner&&lgLoser&&lgWinner!==lgLoser;
+  const canStart=p1&&p2&&p1!==p2;
+  const pinned=isPinned(activeTid);
+
+  const S={
+    app:{minHeight:"100vh",background:C.bg,color:C.white,fontFamily:"inherit",paddingBottom:72},
+    hdr:{background:C.surface,borderBottom:"1px solid "+C.border,position:"sticky",top:0,zIndex:60},
+    hdrIn:{maxWidth:600,margin:"0 auto",padding:"0 14px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52},
+    logo:{display:"flex",alignItems:"center",gap:9},
+    appName:{fontSize:17,fontWeight:900,color:C.white,letterSpacing:"-0.5px",lineHeight:1},
+    appSub:{fontSize:9,color:C.muted,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1,display:"flex",alignItems:"center",gap:4},
+    hdrBtns:{display:"flex",gap:6,alignItems:"center"},
+    hdrBtn:{padding:"5px 10px",fontSize:11,color:C.mutedHi,borderRadius:8,border:"1px solid "+C.border,background:"transparent",fontWeight:700,cursor:"pointer"},
+    hdrBtnA:{padding:"5px 11px",fontSize:11,borderRadius:8,border:"none",background:C.white,color:C.bg,fontWeight:700,cursor:"pointer"},
+    drawer:{position:"absolute",top:"100%",left:0,right:0,background:C.surface,borderBottom:"1px solid "+C.border,zIndex:70,padding:"12px 14px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.4)"},
+    drawerIn:{maxWidth:600,margin:"0 auto"},
+    secLbl:{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10},
+    savebar:{background:C.hi,borderBottom:"1px solid "+C.border,padding:"5px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"},
+    tabBar:{background:C.surface,borderBottom:"1px solid "+C.border,display:"flex",position:"sticky",top:52,zIndex:50},
+    tabIn:{maxWidth:600,margin:"0 auto",display:"flex",width:"100%"},
+    body:{padding:"16px 14px 0",maxWidth:600,margin:"0 auto"},
+    card:{background:C.surface,border:"1px solid "+C.border,borderRadius:12,padding:"13px 14px",marginBottom:8},
+    overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16},
+    modal:{background:C.surface,border:"1px solid "+C.border,borderRadius:18,padding:"22px 18px 18px",width:"100%",maxWidth:380,maxHeight:"90vh",overflowY:"auto"},
+  };
+
+  if(loading)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+      <div style={{fontSize:36}}>🏓</div>
+      <div style={{fontSize:22,fontWeight:900,color:C.white,letterSpacing:"-0.5px"}}>EL PONG</div>
+      <div className="pulse" style={{fontSize:12,color:C.muted}}>Loading...</div>
+    </div>
+  );
+
+  return(
+    <div style={S.app}>
+
+      {/* HEADER */}
+      <div style={S.hdr}>
+        <div style={S.hdrIn}>
+          <div style={S.logo}>
+            <div style={{fontSize:18}}>🏓</div>
+            <div>
+              <div style={S.appName}>EL PONG</div>
+              <div style={S.appSub}>
+                {st.name}
+                {syncing&&<span className="pulse" style={{color:C.blue,fontSize:8}}>sync</span>}
+                {!online&&<span style={{color:C.lose,fontSize:8}}>offline</span>}
+              </div>
+            </div>
+          </div>
+          <div style={S.hdrBtns}>
+            <button style={S.hdrBtn} onClick={()=>setShowTournaments(v=>!v)}>Tournaments</button>
+            <button style={S.hdrBtn} onClick={()=>setShowShare(true)}>Share</button>
+            <button style={S.hdrBtnA} onClick={openAdd}>+ Log</button>
+          </div>
+        </div>
+
+        {showTournaments&&(
+          <div className="slide-in" style={S.drawer}>
+            <div style={S.drawerIn}>
+              <div style={S.secLbl}>Your Tournaments ({tournaments.length}/5)</div>
+              {tournaments.map((t,i)=>(
+                <div key={t.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                  {editTournIdx===i?(
+                    <>
+                      <input style={{...inp(),flex:1,padding:"7px 10px",fontSize:13}} value={editTournName} autoFocus
+                        onChange={e=>setEditTournName(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter")renameTournament(i,editTournName);if(e.key==="Escape")setEditTournIdx(null)}}/>
+                      <button style={{...Btn(C.win,"#000"),padding:"7px 11px",fontSize:11,borderRadius:7}} onClick={()=>renameTournament(i,editTournName)}>Save</button>
+                      <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:"6px 8px"}} onClick={()=>setEditTournIdx(null)}>x</button>
+                    </>
+                  ):(
+                    <>
+                      <button onClick={()=>switchToTournament(t.id)} style={{flex:1,textAlign:"left",padding:"8px 11px",borderRadius:8,border:"1px solid "+(t.id===activeTid?C.white:C.border),background:t.id===activeTid?C.hi:"transparent",color:t.id===activeTid?C.white:C.mutedHi,fontWeight:t.id===activeTid?700:400,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+                        {t.id===activeTid&&<span style={{color:C.win,fontSize:9}}>*</span>}
+                        <span style={{flex:1}}>{t.name}</span>
+                        <span style={{fontSize:10,color:C.muted}}>{t.history.length} games</span>
+                        {isPinned(t.id)&&<span style={{fontSize:9,color:C.gold}}>saved</span>}
+                      </button>
+                      <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:"6px"}} onClick={()=>{setEditTournIdx(i);setEditTournName(t.name)}}>edit</button>
+                      {tournaments.length>1&&<button style={{background:"none",border:"none",cursor:"pointer",color:C.lose,fontSize:13,padding:"6px"}} onClick={()=>deleteTournament(t.id)}>del</button>}
+                    </>
+                  )}
+                </div>
+              ))}
+              {tournaments.length<5&&(
+                <button onClick={()=>{setShowNewTourn(true);setShowTournaments(false)}} style={{...OBtn(C.border),width:"100%",padding:"8px",fontSize:12,color:C.mutedHi,borderRadius:8,marginTop:2}}>+ New Tournament</button>
+              )}
+              <button onClick={()=>setShowTournaments(false)} style={{...Btn(C.hi,C.muted),width:"100%",padding:"8px",fontSize:12,borderRadius:8,marginTop:8,border:"1px solid "+C.border}}>Close</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SAVE BAR */}
+      <div style={S.savebar}>
+        <div style={{fontSize:10,color:C.muted}}>{pinned?"Saved to this device":"Not saved to this device"}</div>
+        {pinned
+          ?<button onClick={()=>{unpinTournament(activeTid);showToast("Removed from saved")}} style={{...OBtn(C.border),padding:"3px 10px",fontSize:10,color:C.muted,borderRadius:6}}>Remove</button>
+          :<button onClick={()=>{pinTournament(activeTid,st.name);showToast("Saved!")}} style={{...Btn(C.gold,C.bg),padding:"3px 10px",fontSize:10,borderRadius:6}}>Save Tournament</button>
+        }
+      </div>
+
+      {/* TABS */}
+      <div style={S.tabBar}>
+        <div style={S.tabIn}>
+          {[["play","Score"],["standings","Standings"],["h2h","H2H"],["mypos","Position"],["bracket","Bracket"],["history","History"]].map(([id,lbl])=>{
+            const active=tab===id;
+            return(
+              <button key={id} onClick={()=>switchTab(id)} style={{flex:1,padding:"11px 2px",border:"none",background:"none",color:active?C.white:C.muted,borderBottom:"2px solid "+(active?C.white:"transparent"),fontWeight:active?700:400,fontSize:11,cursor:"pointer",transition:"color .15s,border-color .15s"}}>
+                {lbl}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* BODY */}
+      <div key={tab} className="fade-in" style={S.body}>
+
+        {/* SCORE */}
+        {tab==="play"&&!scoreStarted&&(
+          <>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Live Score Counter</div>
+            <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"flex-end"}}>
+              <select style={{...inp(),flex:1,cursor:"pointer"}} value={p1} onChange={e=>setP1(e.target.value)}>
+                <option value="">Player 1...</option>
+                {st.playerOrder.map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+              <div style={{fontSize:12,color:C.muted,fontWeight:700,paddingBottom:12}}>vs</div>
+              <select style={{...inp(),flex:1,cursor:"pointer"}} value={p2} onChange={e=>setP2(e.target.value)}>
+                <option value="">Player 2...</option>
+                {st.playerOrder.filter(n=>n!==p1).map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <button style={{...Btn(canStart?C.white:C.hi,canStart?C.bg:C.muted),width:"100%",padding:"13px",fontSize:14,borderRadius:10,marginBottom:8}} disabled={!canStart} onClick={()=>{setScore([0,0]);setScoreStarted(true)}}>
+              {canStart?"Start: "+p1+" vs "+p2:"Select two players"}
+            </button>
+            <div style={{paddingTop:14,borderTop:"1px solid "+C.border,marginTop:4}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Or just log a result</div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...OBtn(C.border),flex:1,padding:"10px",fontSize:13,color:C.white,borderRadius:10}} onClick={openAdd}>+ Single game</button>
+                <button style={{...OBtn(C.border),flex:1,padding:"10px",fontSize:13,color:C.mutedHi,borderRadius:10}} onClick={openBulk}>+ Bulk (past)</button>
+              </div>
+            </div>
+            <div style={{marginTop:12}}>
+              <button style={{...OBtn(C.border),width:"100%",padding:"9px",fontSize:12,color:C.muted,borderRadius:10}} onClick={()=>setShowPlayers(true)}>Edit Players for {st.name}</button>
+            </div>
+          </>
+        )}
+
+        {tab==="play"&&scoreStarted&&(
+          <>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {[0,1].map(idx=>{
+                const isF=flash===idx;
+                return(
+                  <div key={idx} style={{flex:1,background:C.surface,border:"2px solid "+(isF?C.white:C.border),borderRadius:16,padding:"14px 6px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:10,transition:"border-color .15s"}}>
+                    <div style={{fontSize:13,fontWeight:800,color:C.white,textAlign:"center"}}>{idx===0?p1:p2}</div>
+                    <div style={{fontSize:82,fontWeight:900,lineHeight:1,fontFamily:"monospace",color:isF?C.white:C.muted,transition:"color .15s"}}>{score[idx]}</div>
+                    <div style={{display:"flex",gap:10}}>
+                      <button style={{width:42,height:42,borderRadius:"50%",border:"1px solid "+C.border,background:"transparent",color:C.muted,fontSize:20,fontWeight:900,cursor:"pointer",userSelect:"none"}} onClick={()=>subPt(idx)}>-</button>
+                      <button style={{width:54,height:54,borderRadius:"50%",border:"none",background:C.white,color:C.bg,fontSize:26,fontWeight:900,cursor:"pointer",userSelect:"none"}} onClick={()=>addPt(idx)}>+</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>Who won?</div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              <button style={{...Btn(C.white,C.bg),flex:1,padding:"13px",fontSize:14,borderRadius:10}} onClick={()=>finishGame(0)}>{p1} won</button>
+              <button style={{...Btn(C.el,C.white),border:"1px solid "+C.border,flex:1,padding:"13px",fontSize:14,borderRadius:10}} onClick={()=>finishGame(1)}>{p2} won</button>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...OBtn(C.border),flex:1,padding:"9px",fontSize:12,color:C.muted,borderRadius:10}} onClick={()=>setScore([0,0])}>Reset</button>
+              <button style={{...OBtn(C.border),flex:1,padding:"9px",fontSize:12,color:C.muted,borderRadius:10}} onClick={()=>{setScoreStarted(false);setScore([0,0])}}>Back</button>
+            </div>
+          </>
+        )}
+
+        {/* STANDINGS */}
+        {tab==="standings"&&(
+          <>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Ranked by overall win rate</div>
+            {sortedPlayers.map((name,i)=>{
+              const s=stats[name]||{};
+              const wp=pct(s.wins||0,s.losses||0);
+              const opps=st.playerOrder.filter(n=>n!==name);
+              return(
+                <div key={name} style={S.card}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{fontSize:i<3?18:13,fontWeight:900,minWidth:28,textAlign:"center",color:i===0?C.gold:i===1?"#c0c0c0":i===2?"#cd7f32":C.muted}}>
+                      {i===0?"1st":i===1?"2nd":i===2?"3rd":"#"+(i+1)}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{name}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                        {s.wins||0}W - {s.losses||0}L - {(s.wins||0)+(s.losses||0)} games
+                        {s.currentStreak>1?" - "+s.currentStreak+" streak":""}
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontWeight:900,fontSize:20,color:wp===null?C.even:wp>=50?C.win:C.lose}}>{wp!==null?wp+"%":"--"}</div>
+                      <div style={{fontSize:10,color:C.muted}}>overall</div>
+                    </div>
+                  </div>
+                  {opps.length>0&&(s.wins||0)+(s.losses||0)>0&&(
+                    <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid "+C.border,display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {opps.map(opp=>{
+                        const h=(s.h2h||{})[opp]||{w:0,l:0};
+                        const op=pct(h.w,h.l);
+                        return(
+                          <div key={opp} style={{background:C.hi,borderRadius:7,padding:"4px 9px",fontSize:11,border:"1px solid "+C.border,display:"flex",gap:6,alignItems:"center"}}>
+                            <span style={{color:C.muted}}>{opp}</span>
+                            <span style={{fontWeight:800,color:op===null?C.even:op>=50?C.win:C.lose}}>{op!==null?op+"%":"--"}</span>
+                            <span style={{color:C.muted,fontSize:10}}>({h.w}-{h.l})</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {st.playerOrder.length===0&&<div style={{color:C.muted,fontSize:13}}>Add players to get started.</div>}
+          </>
+        )}
+
+        {/* H2H */}
+        {tab==="h2h"&&(
+          <>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Games up/down - row vs column</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{borderCollapse:"separate",borderSpacing:3,minWidth:240}}>
+                <thead>
+                  <tr>
+                    <th style={{fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",padding:"4px 10px 4px 0",textAlign:"right"}}>vs</th>
+                    {st.playerOrder.map(p=><th key={p} style={{fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",padding:"4px 7px",textAlign:"center"}}>{p}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {st.playerOrder.map(row=>(
+                    <tr key={row}>
+                      <td style={{fontSize:11,fontWeight:700,color:C.white,padding:"4px 10px 4px 0",textAlign:"right",whiteSpace:"nowrap"}}>{row}</td>
+                      {st.playerOrder.map(col=>{
+                        if(row===col)return<td key={col}><div style={{background:C.hi,borderRadius:6,minWidth:48,padding:"7px 5px"}}/></td>;
+                        const net=netG(stats,row,col);
+                        const h=(stats[row]?.h2h||{})[col]||{w:0,l:0};
+                        return(
+                          <td key={col}>
+                            <div style={{background:net>0?"#0a1f0a":net<0?"#1f0a0a":C.hi,border:"1px solid "+(net>0?"#1a3a1a":net<0?"#3a1a1a":C.border),borderRadius:6,padding:"7px 5px",textAlign:"center",minWidth:48}}>
+                              <div style={{fontSize:14,fontWeight:800,color:net>0?C.win:net<0?C.lose:C.even}}>{net>0?"+"+net:net===0?"--":net}</div>
+                              {(h.w+h.l)>0&&<div style={{fontSize:9,color:C.muted,marginTop:1}}>{h.w}-{h.l}</div>}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:12}}>
+              {[{col:C.win,lbl:"Ahead"},{col:C.lose,lbl:"Behind"},{col:C.even,lbl:"Even/none"}].map(({col,lbl})=>(
+                <div key={lbl} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:C.muted}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:col}}/>{lbl}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* POSITION */}
+        {tab==="mypos"&&(
+          <>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>Select a player</div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
+              {st.playerOrder.map(n=>(
+                <button key={n} onClick={()=>setFocusPlayer(n)} style={{padding:"6px 13px",borderRadius:18,border:"1.5px solid "+(focusPlayer===n?C.white:C.border),background:focusPlayer===n?C.hi:"transparent",color:focusPlayer===n?C.white:C.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>{n}</button>
+              ))}
+            </div>
+            {focusPlayer&&stats[focusPlayer]&&(()=>{
+              const s=stats[focusPlayer];
+              const wp=pct(s.wins,s.losses);
+              const myRank=sortedPlayers.indexOf(focusPlayer);
+              const opps=st.playerOrder.filter(n=>n!==focusPlayer).sort((a,b)=>netG(stats,focusPlayer,b)-netG(stats,focusPlayer,a));
+              const ptPct=s.pointsScored+s.pointsConceded>0?Math.round(s.pointsScored/(s.pointsScored+s.pointsConceded)*100):null;
+              return(
+                <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:14,overflow:"hidden",marginBottom:12}}>
+                  <div style={{borderBottom:"1px solid "+C.border,padding:"13px 14px",display:"flex",alignItems:"center",gap:10}}>
+                    <div>
+                      <div style={{fontWeight:900,fontSize:20,color:C.white}}>{focusPlayer}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{wp!==null?wp+"% win rate - ":"No games - "}{s.wins}W - {s.losses}L</div>
+                    </div>
+                    <div style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:C.gold,background:C.hi,borderRadius:6,padding:"3px 9px",border:"1px solid "+C.border}}>#{myRank+1} of {st.playerOrder.length}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",padding:"5px 14px",borderBottom:"1px solid "+C.border,background:C.hi}}>
+                    <div style={{flex:1,fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Opponent</div>
+                    <div style={{minWidth:38,textAlign:"center",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Net</div>
+                    <div style={{minWidth:52,textAlign:"center",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>W-L</div>
+                    <div style={{minWidth:44,textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Win%</div>
+                  </div>
+                  {opps.map(opp=>{
+                    const net=netG(stats,focusPlayer,opp);
+                    const h=(s.h2h||{})[opp]||{w:0,l:0};
+                    const op=pct(h.w,h.l);
+                    return(
+                      <div key={opp} style={{display:"flex",alignItems:"center",padding:"10px 14px",borderBottom:"1px solid "+C.border}}>
+                        <div style={{flex:1,fontWeight:600,fontSize:13}}>{opp}</div>
+                        <div style={{fontWeight:800,fontSize:15,minWidth:38,textAlign:"center",color:net>0?C.win:net<0?C.lose:C.even}}>{net>0?"+"+net:net===0?"--":net}</div>
+                        <div style={{fontSize:11,color:C.muted,minWidth:52,textAlign:"center"}}>{h.w}-{h.l}</div>
+                        <div style={{fontWeight:800,fontSize:14,minWidth:44,textAlign:"right",color:op===null?C.even:op>=50?C.win:C.lose}}>{op!==null?op+"%":"--"}</div>
+                      </div>
+                    );
+                  })}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",borderTop:"1px solid "+C.border}}>
+                    {[{val:wp!==null?wp+"%":"--",lbl:"Win Rate"},{val:s.bestStreak||0,lbl:"Best Streak"},{val:ptPct!==null?ptPct+"%":"--",lbl:"Point %"}].map(({val,lbl},i)=>(
+                      <div key={lbl} style={{padding:"10px 14px",borderRight:i===2?"none":"1px solid "+C.border}}>
+                        <div style={{fontWeight:900,fontSize:18,color:C.white}}>{val}</div>
+                        <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:2}}>{lbl}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {!focusPlayer&&<div style={{color:C.muted,fontSize:13}}>Tap a player above to see their breakdown.</div>}
+          </>
+        )}
+
+        {/* HISTORY */}
+        {tab==="history"&&(
+          <>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>
+              {displayHistory.length} game{displayHistory.length!==1?"s":""}{histFilter?" with "+histFilter:""} - tap to edit
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+              <button style={{padding:"5px 11px",borderRadius:14,border:"1px solid "+(histFilter?"":C.white),background:histFilter?"transparent":C.hi,color:histFilter?C.muted:C.white,fontWeight:600,fontSize:11,cursor:"pointer"}} onClick={()=>setHistFilter("")}>All</button>
+              {st.playerOrder.map(n=>(
+                <button key={n} style={{padding:"5px 11px",borderRadius:14,border:"1px solid "+(histFilter===n?C.white:C.border),background:histFilter===n?C.hi:"transparent",color:histFilter===n?C.white:C.muted,fontWeight:600,fontSize:11,cursor:"pointer"}} onClick={()=>setHistFilter(histFilter===n?"":n)}>{n}</button>
+              ))}
+            </div>
+            <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:14,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",textAlign:"center"}}>
+                <button style={{background:"none",border:"1px dashed "+C.border,color:C.mutedHi,fontWeight:700,fontSize:12,cursor:"pointer",padding:"7px 18px",borderRadius:8,width:"100%"}} onClick={openAdd}>+ Add a game</button>
+              </div>
+              {displayHistory.length===0&&<div style={{padding:"20px 14px",color:C.muted,fontSize:13,textAlign:"center"}}>No games logged yet.</div>}
+              {displayHistory.slice(0,showAllHistory?10000:50).map(h=>(
+                <div key={h.id} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 12px",borderTop:"1px solid "+C.border,cursor:"pointer"}} onClick={()=>openEdit(h)}>
+                  <div style={{fontWeight:700,fontSize:13,color:C.win,flex:1}}>{h.winner}</div>
+                  <div style={{fontSize:11,color:C.muted,minWidth:32,textAlign:"center"}}>{h.winScore!=null?h.winScore+"-"+h.loseScore:"W"}</div>
+                  <div style={{fontWeight:600,fontSize:13,color:C.lose,flex:1,textAlign:"right"}}>{h.loser}</div>
+                  <div style={{fontSize:10,color:C.muted,marginLeft:4,whiteSpace:"nowrap"}}>{fmtTime(h.ts)}</div>
+                  <div style={{fontSize:12,color:C.muted,marginLeft:2,opacity:0.5}}>edit</div>
+                </div>
+              ))}
+              {!showAllHistory&&displayHistory.length>50&&(
+                <div style={{textAlign:"center",padding:"12px"}}>
+                  <button style={{background:"none",border:"none",color:C.mutedHi,fontWeight:700,fontSize:13,cursor:"pointer"}} onClick={()=>setShowAllHistory(true)}>Show all {displayHistory.length}</button>
+                </div>
+              )}
+            </div>
+            <div style={{marginTop:10}}>
+              <button style={{...OBtn(C.border),width:"100%",padding:"10px",fontSize:12,color:C.muted,borderRadius:10}} onClick={openBulk}>+ Bulk add past games</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* GAME MODAL */}
+      {gameModal&&(
+        <div style={S.overlay} onClick={()=>setGameModal(null)}>
+          <div className="slide-in" style={S.modal} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:800,color:C.white,marginBottom:4}}>
+              {gameModal.mode==="edit"?"Edit Game":gameModal.mode==="bulk"?"Bulk Add Past Games":"Log a Game"}
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>
+              {gameModal.mode==="edit"&&"Change winner, loser, score, or date -- or delete."}
+              {gameModal.mode==="bulk"&&"Log multiple wins for the same person at once."}
+              {gameModal.mode==="add"&&"Log a completed game. Score is optional."}
+            </div>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:5,display:"block"}}>Winner</label>
+            <select style={{...inp(),cursor:"pointer",marginBottom:12}} value={lgWinner} onChange={e=>{setLgWinner(e.target.value);if(e.target.value===lgLoser)setLgLoser("")}}>
+              <option value="">Select winner...</option>
+              {st.playerOrder.map(n=><option key={n} value={n}>{n}</option>)}
+            </select>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:5,display:"block"}}>Loser</label>
+            <select style={{...inp(),cursor:"pointer",marginBottom:12}} value={lgLoser} onChange={e=>setLgLoser(e.target.value)}>
+              <option value="">Select loser...</option>
+              {st.playerOrder.filter(n=>n!==lgWinner).map(n=><option key={n} value={n}>{n}</option>)}
+            </select>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:5,display:"block"}}>Score (optional)</label>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              <input style={{...inp(),flex:1}} type="number" placeholder="Winner pts" value={lgWinScore} onChange={e=>setLgWinScore(e.target.value)}/>
+              <input style={{...inp(),flex:1}} type="number" placeholder="Loser pts" value={lgLoseScore} onChange={e=>setLgLoseScore(e.target.value)}/>
+            </div>
+            {gameModal.mode==="bulk"&&(
+              <>
+                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:5,display:"block"}}>Number of wins for {lgWinner||"winner"}</label>
+                <input style={{...inp(),marginBottom:12}} type="number" min={1} max={500} value={lgBulk} onChange={e=>setLgBulk(Math.max(1,parseInt(e.target.value)||1))}/>
+              </>
+            )}
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.09em",marginBottom:5,display:"block"}}>Date (optional)</label>
+            <input style={{...inp()}} type="date" value={lgDate} onChange={e=>setLgDate(e.target.value)}/>
+            <button style={{...Btn(canLog?C.white:C.hi,canLog?C.bg:C.muted),width:"100%",padding:"12px",fontSize:15,borderRadius:10,marginTop:14}} disabled={!canLog} onClick={submitGame}>
+              {gameModal.mode==="bulk"&&lgBulk>1?"Add "+lgBulk+" wins for "+(lgWinner||"winner"):gameModal.mode==="edit"?"Save Changes":"Save Game"}
+            </button>
+            <button style={{...OBtn(C.border),width:"100%",padding:"10px",fontSize:13,borderRadius:10,marginTop:8,color:C.muted}} onClick={()=>setGameModal(null)}>Cancel</button>
+            {gameModal.mode==="edit"&&(
+              <>
+                <div style={{borderTop:"1px solid "+C.border,margin:"14px 0"}}/>
+                <button style={{...OBtn(C.lose+"44"),width:"100%",padding:"10px",fontSize:13,borderRadius:10,color:C.lose}} onClick={()=>deleteGame(gameModal.game.id)}>Delete this game</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SHARE MODAL */}
+      {showShare&&(
+        <div style={S.overlay} onClick={()=>setShowShare(false)}>
+          <div className="slide-in" style={{...S.modal,maxWidth:380}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:800,color:C.white,marginBottom:4}}>Share Tournament</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:18,lineHeight:1.6}}>Send this link to anyone -- they open it and join instantly. Changes sync live to all devices.</div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <input id="share-link-input" readOnly value={getShareLink()} style={{...inp(),flex:1,fontSize:11,color:C.mutedHi,padding:"9px 10px"}} onFocus={e=>e.target.select()}/>
+              <button style={{...Btn(copied?C.win:C.white,copied?"#000":C.bg),padding:"9px 14px",fontSize:12,borderRadius:9,whiteSpace:"nowrap"}} onClick={copyLink}>{copied?"Copied!":"Copy"}</button>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <button style={{...Btn("#1b8a4e",C.white),flex:1,padding:"11px",fontSize:13,borderRadius:10}} onClick={shareSMS}>Text Message</button>
+              {navigator.share&&<button style={{...Btn(C.hi,C.white),border:"1px solid "+C.border,flex:1,padding:"11px",fontSize:13,borderRadius:10}} onClick={()=>navigator.share({title:"EL PONG",text:"Join my EL PONG tournament!",url:getShareLink()})}>Share...</button>}
+            </div>
+            <button style={{...Btn(C.hi,C.muted),border:"1px solid "+C.border,width:"100%",padding:"10px",fontSize:13,borderRadius:10}} onClick={()=>setShowShare(false)}>Done</button>
+          </div>
+        </div>
+      )}
+
+      {/* PLAYERS MODAL */}
+      {showPlayers&&(
+        <div style={S.overlay} onClick={()=>setShowPlayers(false)}>
+          <div className="slide-in" style={S.modal} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:800,color:C.white,marginBottom:16}}>Players -- {st.name}</div>
+            {st.playerOrder.map((name,i)=>(
+              <div key={name} style={{display:"flex",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
+                {editIdx===i?(
+                  <>
+                    <input style={{...inp(),flex:1,padding:"7px 10px",fontSize:13}} value={editName} autoFocus onChange={e=>setEditName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&savePlayerEdit(i)}/>
+                    <button style={{...Btn(C.win,"#000"),padding:"7px 11px",fontSize:11,borderRadius:7,marginLeft:6}} onClick={()=>savePlayerEdit(i)}>Save</button>
+                    <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:"6px 8px"}} onClick={()=>setEditIdx(null)}>x</button>
+                  </>
+                ):(
+                  <>
+                    <div style={{flex:1,fontWeight:600,fontSize:14}}>{name}</div>
+                    <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:"2px 6px"}} onClick={()=>{setEditIdx(i);setEditName(name)}}>edit</button>
+                    <button style={{background:"none",border:"none",cursor:"pointer",color:C.lose,fontSize:13,padding:"2px 6px"}} onClick={()=>removePlayer(name)}>remove</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <input style={{...inp(),flex:1,fontSize:13}} placeholder="New player name..." value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addPlayer()}/>
+              <button style={{...Btn(C.white,C.bg),padding:"9px 14px",fontSize:13,borderRadius:10}} onClick={addPlayer}>Add</button>
+            </div>
+            <button style={{...Btn(C.hi,C.white),border:"1px solid "+C.border,width:"100%",marginTop:14,padding:"11px",fontSize:14,borderRadius:10}} onClick={()=>setShowPlayers(false)}>Done</button>
+            <button style={{...OBtn(C.lose+"44"),width:"100%",marginTop:8,padding:"9px",fontSize:12,borderRadius:10,color:C.lose}} onClick={()=>{setShowPlayers(false);clearAll()}}>Reset all stats for {st.name}</button>
+          </div>
+        </div>
+      )}
+
+      {/* NEW TOURNAMENT MODAL */}
+      {showNewTourn&&(
+        <div style={S.overlay} onClick={()=>setShowNewTourn(false)}>
+          <div className="slide-in" style={{...S.modal,maxWidth:340}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:800,color:C.white,marginBottom:4}}>New Tournament</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Give it a name -- you can change this later.</div>
+            <input style={{...inp(),marginBottom:14}} placeholder="e.g. Summer League..." value={newTournName} autoFocus onChange={e=>setNewTournName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createTournament(newTournName)}/>
+            <button style={{...Btn(C.white,C.bg),width:"100%",padding:"12px",fontSize:14,borderRadius:10,marginBottom:8}} onClick={()=>createTournament(newTournName)}>Create Tournament</button>
+            <button style={{...OBtn(C.border),width:"100%",padding:"10px",fontSize:13,borderRadius:10,color:C.muted}} onClick={()=>setShowNewTourn(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* BRACKET TAB */}
+      {tab==="bracket"&&(
+        <div key="bracket" className="fade-in" style={{padding:"16px 14px 0",maxWidth:600,margin:"0 auto"}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:14}}>Tournament Bracket</div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <button style={{...Btn(C.white,C.bg),flex:1,padding:"11px",fontSize:13,borderRadius:10}} onClick={randomBracket}>Random Bracket</button>
+            <button style={{...Btn(C.gold,C.bg),flex:1,padding:"11px",fontSize:13,borderRadius:10,opacity:bracketLoading?0.6:1}} onClick={aiBracket} disabled={bracketLoading}>
+              {bracketLoading?"AI thinking...":"AI Seed Bracket"}
+            </button>
+          </div>
+          {!bracket&&(
+            <div style={{textAlign:"center",padding:"40px 20px",color:C.muted,fontSize:13,background:C.surface,borderRadius:14,border:"1px solid "+C.border}}>
+              Generate a bracket above. AI Seed uses win rates and head-to-head records to seed players fairly.
+            </div>
+          )}
+          {bracket&&(
+            <>
+              <div style={{overflowX:"auto",paddingBottom:16}}>
+                <div style={{display:"flex",gap:0,minWidth:bracket.rounds.length*160}}>
+                  {bracket.rounds.map((round,ri)=>(
+                    <div key={ri} style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",minWidth:150,paddingRight:ri<bracket.rounds.length-1?8:0}}>
+                      <div style={{fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"center",marginBottom:8,paddingLeft:8}}>
+                        {ri===bracket.rounds.length-1?"Final":ri===bracket.rounds.length-2?"Semi":ri===0?"Round 1":"Round "+(ri+1)}
+                      </div>
+                      {round.map((match,mi)=>{
+                        const topH=Math.pow(2,ri+1);
+                        const spacing=Math.pow(2,ri)*24;
+                        return(
+                          <div key={mi} style={{marginBottom:spacing,position:"relative"}}>
+                            {/* Connector line */}
+                            {ri<bracket.rounds.length-1&&(
+                              <div style={{position:"absolute",right:-8,top:"50%",width:8,height:1,background:C.border}}/>
+                            )}
+                            <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:8,overflow:"hidden"}}>
+                              {[match.p1,match.p2].map((player,pi)=>(
+                                <div key={pi}
+                                  onClick={()=>player&&!match.isBye&&advanceWinner(ri,mi,player)}
+                                  style={{
+                                    padding:"8px 10px",
+                                    background:match.winner===player&&player?C.win+"22":pi===0?"transparent":C.hi,
+                                    borderTop:pi===1?"1px solid "+C.border:"none",
+                                    cursor:player&&!match.isBye?"pointer":"default",
+                                    display:"flex",alignItems:"center",gap:6,
+                                    transition:"background .15s",
+                                  }}>
+                                  {match.winner===player&&player&&<span style={{fontSize:9,color:C.win}}>*</span>}
+                                  <span style={{fontSize:12,fontWeight:match.winner===player?800:500,color:player?C.white:C.muted,flex:1}}>
+                                    {player||"BYE"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Champion */}
+              {(()=>{
+                const finalRound=bracket.rounds[bracket.rounds.length-1];
+                const champ=finalRound&&finalRound[0]&&finalRound[0].winner;
+                if(!champ)return null;
+                return(
+                  <div style={{background:"#1a1500",border:"2px solid "+C.gold,borderRadius:14,padding:"16px",textAlign:"center",marginTop:8}}>
+                    <div style={{fontSize:11,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Champion</div>
+                    <div style={{fontSize:26,fontWeight:900,color:C.gold}}>{champ}</div>
+                  </div>
+                );
+              })()}
+              <button style={{...OBtn(C.border),width:"100%",padding:"10px",fontSize:12,color:C.muted,borderRadius:10,marginTop:12}} onClick={()=>setBracket(null)}>Clear Bracket</button>
+              <div style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:8}}>Tap a player name to advance them as the winner</div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* AI CHAT BUBBLE */}
+      {!showAI&&(
+        <button
+          onClick={()=>setShowAI(true)}
+          style={{position:"fixed",bottom:24,left:20,zIndex:90,width:54,height:54,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#2563eb,#7c3aed)",color:"#fff",fontSize:22,cursor:"pointer",boxShadow:"0 4px 20px rgba(37,99,235,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}
+        >
+          💬
+        </button>
+      )}
+
+      {/* AI CHAT PANEL */}
+      {showAI&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,top:"auto",zIndex:300,display:"flex",flexDirection:"column",height:"70vh",maxHeight:560,background:C.surface,borderTop:"1px solid "+C.border,borderRadius:"18px 18px 0 0",boxShadow:"0 -8px 32px rgba(0,0,0,0.6)"}}>
+          {/* Panel header */}
+          <div style={{display:"flex",alignItems:"center",padding:"14px 16px 12px",borderBottom:"1px solid "+C.border,flexShrink:0}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#2563eb,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,marginRight:10}}>AI</div>
+            <div>
+              <div style={{fontWeight:800,fontSize:15,color:C.white}}>EL PONG Analyst</div>
+              <div style={{fontSize:10,color:C.muted}}>Ask about stats, predictions, rivalries...</div>
+            </div>
+            <button onClick={()=>setShowAI(false)} style={{marginLeft:"auto",background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"4px 8px"}}>x</button>
+          </div>
+
+          {/* Messages */}
+          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+            {aiMessages.length===0&&(
+              <div style={{color:C.muted,fontSize:13,textAlign:"center",marginTop:20,lineHeight:1.7}}>
+                Ask me anything about your tournament!
+                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
+                  {["Who is most likely to win a match against Alex?","What are the biggest rivalries?","Who should I bet on to win the tournament?","Create a seeding based on current stats"].map(q=>(
+                    <button key={q} onClick={()=>{setAiInput(q)}} style={{...OBtn(C.border),padding:"8px 12px",fontSize:11,color:C.mutedHi,borderRadius:8,textAlign:"left"}}>{q}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {aiMessages.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"82%",padding:"10px 13px",borderRadius:m.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",background:m.role==="user"?"#2563eb":C.hi,color:C.white,fontSize:13,lineHeight:1.5}}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {aiLoading&&(
+              <div style={{display:"flex",justifyContent:"flex-start"}}>
+                <div style={{padding:"10px 14px",borderRadius:"16px 16px 16px 4px",background:C.hi,color:C.muted,fontSize:13}} className="pulse">thinking...</div>
+              </div>
+            )}
+            <div ref={aiEndRef}/>
+          </div>
+
+          {/* Input */}
+          <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:"1px solid "+C.border,flexShrink:0,background:C.surface}}>
+            <input
+              style={{...inp(),flex:1,fontSize:13,padding:"9px 12px"}}
+              placeholder="Ask about stats, predictions..."
+              value={aiInput}
+              onChange={e=>setAiInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendAIMessage()}
+            />
+            <button style={{...Btn(aiLoading||!aiInput.trim()?"#1a1a1a":"#2563eb","#fff"),padding:"9px 16px",fontSize:13,borderRadius:10,opacity:aiLoading||!aiInput.trim()?0.5:1}} onClick={sendAIMessage} disabled={aiLoading||!aiInput.trim()}>Send</button>
+          </div>
+        </div>
+      )}
+
+      {toast&&<div className="toast-pop" style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:C.el,border:"1px solid "+C.border,color:C.white,fontWeight:700,fontSize:13,padding:"10px 20px",borderRadius:28,boxShadow:"0 4px 24px rgba(0,0,0,0.5)",zIndex:999,whiteSpace:"nowrap"}}>{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
