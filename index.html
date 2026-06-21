@@ -347,8 +347,8 @@ function ScratchyBird({myName}){
         width={W}
         height={H}
         style={{display:"block",maxWidth:"100%",cursor:"pointer",borderRadius:12,border:"1px solid #222"}}
-        onClick={jump}
-        onTouchStart={e=>{e.preventDefault();jump()}}
+        onClick={e=>{e.preventDefault()}}
+        onTouchStart={e=>{e.preventDefault();e.stopPropagation();jump()}}
       />
       <div style={{fontSize:11,color:C.muted,marginTop:10}}>Tap / click / Space to flap</div>
     </div>
