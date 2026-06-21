@@ -122,6 +122,239 @@ const inp=(extra={})=>({background:C.hi,color:C.white,border:"1px solid "+C.bord
 const Btn=(bg,col,extra={})=>({border:"none",borderRadius:10,cursor:"pointer",fontWeight:700,background:bg,color:col,...extra});
 const OBtn=(col,extra={})=>({border:"1px solid "+col,borderRadius:10,cursor:"pointer",fontWeight:700,background:"transparent",color:col,...extra});
 
+/* ═══════════════════════════════════════════════════════
+   SCRATCHY BIRD GAME
+═══════════════════════════════════════════════════════ */
+function ScratchyBird({myName}){
+  const canvasRef=useRef(null);
+  const gameRef=useRef({
+    state:"idle", // idle | playing | dead
+    bird:{y:0,vy:0},
+    pipes:[],
+    score:0,
+    frame:0,
+    animId:null,
+  });
+  const[display,setDisplay]=useState({state:"idle",score:0,best:0});
+  const bestRef=useRef(lsGet("scratchy_best")||0);
+
+  const W=360, H=500;
+  const BIRD_X=70, BIRD_R=20;
+  const GRAVITY=0.38, JUMP=-8.0, PIPE_W=52, GAP=165, PIPE_SPEED=2.5;
+
+  // Load real face photo as bird sprite
+  const faceImgRef=useRef(null);
+  useEffect(()=>{
+    const img=new Image();
+    img.src="data:image/png;base64,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";
+    img.onload=()=>{faceImgRef.current=img};
+  },[]);
+
+  function drawBird(ctx, x, y, dead){
+    ctx.save();
+    ctx.translate(x, y);
+    if(dead){ ctx.rotate(0.45); }
+
+    if(faceImgRef.current){
+      // Sprite is 170x110 — draw centered, no circle clipping
+      const sw=101, sh=90;
+      ctx.globalAlpha = dead ? 0.75 : 1.0;
+      ctx.drawImage(faceImgRef.current, -sw/2, -sh/2, sw, sh);
+      ctx.globalAlpha = 1.0;
+      // Red X overlay when dead
+      if(dead){
+        ctx.strokeStyle="rgba(239,68,68,0.9)";
+        ctx.lineWidth=5;
+        ctx.lineCap="round";
+        [[-14,-14,14,14],[14,-14,-14,14]].forEach(([ax,ay,bx,by])=>{
+          ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+        });
+      }
+    } else {
+      ctx.beginPath();
+      ctx.arc(0,0,BIRD_R,0,Math.PI*2);
+      ctx.fillStyle="#f0e0c0";
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function spawnPipe(x){
+    const topH = 80 + Math.random()*(H - GAP - 160);
+    return {x, topH, passed:false};
+  }
+
+  function resetGame(){
+    const g=gameRef.current;
+    g.bird={y:H/2, vy:0};
+    g.pipes=[spawnPipe(W+80), spawnPipe(W+80+280)];
+    g.score=0;
+    g.frame=0;
+    g.state="playing";
+  }
+
+  function jump(){
+    const g=gameRef.current;
+    if(g.state==="idle"){ resetGame(); return; }
+    if(g.state==="dead"){ resetGame(); return; }
+    g.bird.vy=JUMP;
+  }
+
+  useEffect(()=>{
+    const canvas=canvasRef.current;
+    if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    const g=gameRef.current;
+    g.bird.y=H/2;
+
+    function loop(){
+      g.animId=requestAnimationFrame(loop);
+      ctx.fillStyle="#000";
+      ctx.fillRect(0,0,W,H);
+
+      if(g.state==="playing"){
+        // Physics
+        g.bird.vy+=GRAVITY;
+        g.bird.y+=g.bird.vy;
+        g.frame++;
+
+        // Move pipes
+        g.pipes.forEach(p=>{ p.x-=PIPE_SPEED; });
+
+        // Score
+        g.pipes.forEach(p=>{
+          if(!p.passed && p.x+PIPE_W < BIRD_X){
+            p.passed=true; g.score++;
+            if(g.score>bestRef.current){
+              bestRef.current=g.score;
+              lsSet("scratchy_best",g.score);
+            }
+          }
+        });
+
+        // Respawn pipes
+        if(g.pipes[0].x < -PIPE_W-10) g.pipes.shift();
+        if(g.pipes[g.pipes.length-1].x < W-260) g.pipes.push(spawnPipe(W+60));
+
+        // Collision: floor/ceiling
+        if(g.bird.y > H-BIRD_R || g.bird.y < BIRD_R){ g.state="dead"; }
+
+        // Collision: pipes
+        g.pipes.forEach(p=>{
+          const bx=BIRD_X, by=g.bird.y, br=BIRD_R-4;
+          const inX=bx+br>p.x && bx-br<p.x+PIPE_W;
+          const inTop=by-br<p.topH;
+          const inBot=by+br>p.topH+GAP;
+          if(inX&&(inTop||inBot)) g.state="dead";
+        });
+
+        // Update display every 4 frames
+        if(g.frame%4===0) setDisplay({state:g.state,score:g.score,best:bestRef.current});
+      }
+
+      // Draw pipes
+      g.pipes.forEach(p=>{
+        // Top pipe
+        ctx.fillStyle="#fff";
+        ctx.fillRect(p.x,0,PIPE_W,p.topH);
+        ctx.fillStyle="#ccc";
+        ctx.fillRect(p.x-4,p.topH-16,PIPE_W+8,16);
+        // Bottom pipe
+        const botY=p.topH+GAP;
+        ctx.fillStyle="#fff";
+        ctx.fillRect(p.x,botY,PIPE_W,H-botY);
+        ctx.fillStyle="#ccc";
+        ctx.fillRect(p.x-4,botY,PIPE_W+8,16);
+        // Outlines
+        ctx.strokeStyle="#555";
+        ctx.lineWidth=1.5;
+        ctx.strokeRect(p.x,0,PIPE_W,p.topH);
+        ctx.strokeRect(p.x-4,p.topH-16,PIPE_W+8,16);
+        ctx.strokeRect(p.x,botY,PIPE_W,H-botY);
+        ctx.strokeRect(p.x-4,botY,PIPE_W+8,16);
+      });
+
+      // Draw floor line
+      ctx.strokeStyle="#333";
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(0,H-2);
+      ctx.lineTo(W,H-2);
+      ctx.stroke();
+
+      // Draw bird
+      drawBird(ctx, BIRD_X, g.bird.y, g.state==="dead");
+
+      // Score text
+      ctx.fillStyle="#fff";
+      ctx.font="bold 28px monospace";
+      ctx.textAlign="center";
+      ctx.fillText(g.score, W/2, 44);
+
+      // Idle / Dead overlays
+      if(g.state==="idle"){
+        ctx.fillStyle="rgba(0,0,0,0.45)";
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle="#fff";
+        ctx.font="bold 32px monospace";
+        ctx.textAlign="center";
+        ctx.fillText("SCRATCHY",W/2,H/2-40);
+        ctx.font="16px monospace";
+        ctx.fillStyle="#ccc";
+        ctx.fillText("Tap or press Space to start",W/2,H/2+4);
+        if(bestRef.current>0){
+          ctx.fillStyle=C.gold;
+          ctx.font="bold 16px monospace";
+          ctx.fillText("Best: "+bestRef.current,W/2,H/2+34);
+        }
+      }
+      if(g.state==="dead"){
+        ctx.fillStyle="rgba(0,0,0,0.55)";
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle=C.lose;
+        ctx.font="bold 34px monospace";
+        ctx.textAlign="center";
+        ctx.fillText("GAME OVER",W/2,H/2-50);
+        ctx.fillStyle="#fff";
+        ctx.font="bold 22px monospace";
+        ctx.fillText("Score: "+g.score,W/2,H/2);
+        ctx.fillStyle=C.gold;
+        ctx.font="bold 18px monospace";
+        ctx.fillText("Best: "+bestRef.current,W/2,H/2+34);
+        ctx.fillStyle="#aaa";
+        ctx.font="14px monospace";
+        ctx.fillText("Tap to play again",W/2,H/2+68);
+      }
+    }
+    loop();
+
+    // Keyboard support
+    function onKey(e){ if(e.code==="Space"||e.key===" "){ e.preventDefault(); jump(); } }
+    window.addEventListener("keydown",onKey);
+    return()=>{
+      cancelAnimationFrame(g.animId);
+      window.removeEventListener("keydown",onKey);
+    };
+  },[]);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:24}}>
+      <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 0 10px"}}>
+        Scratchy {myName?"— "+myName:""}
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={W}
+        height={H}
+        style={{display:"block",maxWidth:"100%",cursor:"pointer",borderRadius:12,border:"1px solid #222"}}
+        onClick={jump}
+        onTouchStart={e=>{e.preventDefault();jump()}}
+      />
+      <div style={{fontSize:11,color:C.muted,marginTop:10}}>Tap / click / Space to flap</div>
+    </div>
+  );
+}
+
 function App(){
   // Username & identity
   const[myName,setMyName]=useState(()=>lsGet("elpong_username")||"");
@@ -172,13 +405,7 @@ function App(){
   const[showNewTourn,setShowNewTourn]=useState(false);
   const[newTournName,setNewTournName]=useState("");
 
-  // AI Chat
-  const[showAI,setShowAI]=useState(false);
-  const[aiMessages,setAiMessages]=useState([]);
-  const[aiInput,setAiInput]=useState("");
-  const[aiLoading,setAiLoading]=useState(false);
-  const aiEndRef=useRef(null);
-  useEffect(()=>{if(aiEndRef.current)aiEndRef.current.scrollIntoView({behavior:"smooth"})},[aiMessages,aiLoading]);
+
 
   // Bracket
   const[bracket,setBracket]=useState(null);
@@ -484,46 +711,6 @@ function App(){
     updateSt(t=>({...t,history:[]}));showToast("All stats cleared.");
   }
 
-  // ── AI Chat ──
-  function buildStatsContext(){
-    const lines=[];
-    lines.push("Tournament: "+st.name);
-    lines.push("Players: "+st.playerOrder.join(", "));
-    lines.push("Total games: "+st.history.length);
-    st.playerOrder.forEach(n=>{
-      const s=computeStats(st.playerOrder,st.history)[n]||{wins:0,losses:0,currentStreak:0,bestStreak:0,h2h:{}};
-      const wp=pct(s.wins,s.losses);
-      lines.push(n+": "+s.wins+"W-"+s.losses+"L, win rate "+(wp!==null?wp+"%":"no games")+", current streak "+s.currentStreak+", best streak "+s.bestStreak);
-      st.playerOrder.forEach(opp=>{
-        if(opp===n)return;
-        const h=(s.h2h||{})[opp]||{w:0,l:0};
-        if(h.w+h.l>0)lines.push("  "+n+" vs "+opp+": "+h.w+" wins, "+h.l+" losses");
-      });
-    });
-    return lines.join("\n");
-  }
-
-  async function sendAIMessage(){
-    const msg=aiInput.trim();
-    if(!msg||aiLoading)return;
-    const userMsg={role:"user",content:msg};
-    const newMsgs=[...aiMessages,userMsg];
-    setAiMessages(newMsgs);
-    setAiInput("");
-    setAiLoading(true);
-    try{
-      const sysPrompt="You are an expert ping pong analyst for the EL PONG app. You have access to real tournament data. Be concise, insightful, and fun. When predicting matchups give win probabilities based on head-to-head records and recent form. Here is the current tournament data:\n\n"+buildStatsContext();
-      const body={model:"claude-sonnet-4-6",max_tokens:500,system:sysPrompt,messages:newMsgs};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-      const data=await res.json();
-      const reply=data.content&&data.content[0]?data.content[0].text:"Sorry, I could not get a response.";
-      setAiMessages([...newMsgs,{role:"assistant",content:reply}]);
-    }catch(e){
-      setAiMessages([...newMsgs,{role:"assistant",content:"Error connecting to AI. Try again."}]);
-    }
-    setAiLoading(false);
-  }
-
   // ── Bracket ──
   function shuffleArr(arr){
     const a=[...arr];
@@ -565,7 +752,7 @@ function App(){
       const ctx=buildStatsContext();
       const prompt="Based on this ping pong tournament data, return ONLY a JSON array of player names in seeding order from best to worst (most likely to win first). No explanation, just the JSON array.\n\n"+ctx;
       const body={model:"claude-sonnet-4-6",max_tokens:200,messages:[{role:"user",content:prompt}]};
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const res=await fetch(SB_URL+"/functions/v1/ai-proxy",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SB_KEY},body:JSON.stringify(body)});
       const data=await res.json();
       const text=data.content&&data.content[0]?data.content[0].text:"[]";
       const cleaned=text.replace(/```json|```/g,"").trim();
@@ -756,7 +943,7 @@ function App(){
       {/* TABS */}
       <div style={S.tabBar}>
         <div style={S.tabIn}>
-          {[["play","Score"],["standings","Standings"],["h2h","H2H"],["mypos","Position"],["bracket","Bracket"],["history","History"],["profile","Profile"]].map(([id,lbl])=>{
+          {[["play","Score"],["standings","Standings"],["h2h","H2H"],["mypos","Position"],["bracket","Bracket"],["history","History"],["bird","🐦 Scratchy"],["profile","Profile"]].map(([id,lbl])=>{
             const active=tab===id;
             return(
               <button key={id} onClick={()=>switchTab(id)} style={{flex:1,padding:"11px 2px",border:"none",background:"none",color:active?C.white:C.muted,borderBottom:"2px solid "+(active?C.white:"transparent"),fontWeight:active?700:400,fontSize:11,cursor:"pointer",transition:"color .15s,border-color .15s"}}>
@@ -1207,6 +1394,13 @@ function App(){
         </div>
       )}
 
+      {/* SCRATCHY BIRD GAME */}
+      {tab==="bird"&&(
+        <div key="bird" style={{padding:0,maxWidth:600,margin:"0 auto"}}>
+          <ScratchyBird myName={myName}/>
+        </div>
+      )}
+
       {/* PROFILE TAB */}
       {tab==="profile"&&(
         <div key="profile" className="fade-in" style={{padding:"16px 14px 0",maxWidth:600,margin:"0 auto"}}>
@@ -1416,132 +1610,7 @@ function App(){
         </div>
       )}
 
-      {/* AI CHAT BUBBLE */}
-      {!showAI&&(
-        <button
-          onClick={()=>setShowAI(true)}
-          style={{position:"fixed",bottom:24,left:20,zIndex:90,width:54,height:54,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#2563eb,#7c3aed)",color:"#fff",fontSize:22,cursor:"pointer",boxShadow:"0 4px 20px rgba(37,99,235,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}
-        >
-          💬
-        </button>
-      )}
-
-      {/* AI CHAT PANEL */}
-      {showAI&&(
-        <div style={{position:"fixed",bottom:0,left:0,right:0,top:"auto",zIndex:300,display:"flex",flexDirection:"column",height:"70vh",maxHeight:560,background:C.surface,borderTop:"1px solid "+C.border,borderRadius:"18px 18px 0 0",boxShadow:"0 -8px 32px rgba(0,0,0,0.6)"}}>
-          {/* Panel header */}
-          <div style={{display:"flex",alignItems:"center",padding:"14px 16px 12px",borderBottom:"1px solid "+C.border,flexShrink:0}}>
-            <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#2563eb,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,marginRight:10}}>AI</div>
-            <div>
-              <div style={{fontWeight:800,fontSize:15,color:C.white}}>EL PONG Analyst</div>
-              <div style={{fontSize:10,color:C.muted}}>Ask about stats, predictions, rivalries...</div>
-            </div>
-            <button onClick={()=>setShowAI(false)} style={{marginLeft:"auto",background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"4px 8px"}}>x</button>
-          </div>
-
-          {/* Messages */}
-          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
-            {aiMessages.length===0&&(
-              <div style={{color:C.muted,fontSize:13,textAlign:"center",marginTop:20,lineHeight:1.7}}>
-                Ask me anything about your tournament!
-                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
-                  {["Who is most likely to win a match against Alex?","What are the biggest rivalries?","Who should I bet on to win the tournament?","Create a seeding based on current stats"].map(q=>(
-                    <button key={q} onClick={()=>{setAiInput(q)}} style={{...OBtn(C.border),padding:"8px 12px",fontSize:11,color:C.mutedHi,borderRadius:8,textAlign:"left"}}>{q}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {aiMessages.map((m,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-                <div style={{maxWidth:"82%",padding:"10px 13px",borderRadius:m.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",background:m.role==="user"?"#2563eb":C.hi,color:C.white,fontSize:13,lineHeight:1.5}}>
-                  {m.content}
-                </div>
-              </div>
-            ))}
-            {aiLoading&&(
-              <div style={{display:"flex",justifyContent:"flex-start"}}>
-                <div style={{padding:"10px 14px",borderRadius:"16px 16px 16px 4px",background:C.hi,color:C.muted,fontSize:13}} className="pulse">thinking...</div>
-              </div>
-            )}
-            <div ref={aiEndRef}/>
-          </div>
-
-          {/* Input */}
-          <div style={{display:"flex",gap:8,padding:"10px 14px",borderTop:"1px solid "+C.border,flexShrink:0,background:C.surface}}>
-            <input
-              style={{...inp(),flex:1,fontSize:13,padding:"9px 12px"}}
-              placeholder="Ask about stats, predictions..."
-              value={aiInput}
-              onChange={e=>setAiInput(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendAIMessage()}
-            />
-            <button style={{...Btn(aiLoading||!aiInput.trim()?"#1a1a1a":"#2563eb","#fff"),padding:"9px 16px",fontSize:13,borderRadius:10,opacity:aiLoading||!aiInput.trim()?0.5:1}} onClick={sendAIMessage} disabled={aiLoading||!aiInput.trim()}>Send</button>
-          </div>
-        </div>
-      )}
-
-            {/* VIEWER BANNER — shown when you are a viewer in a tournament */}
-      {myRole()==="viewer"&&activeTid&&(
-        <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1500",borderTop:"2px solid "+C.gold,padding:"10px 16px",zIndex:80,display:"flex",alignItems:"center",gap:10}}>
-          <div style={{flex:1,fontSize:12,color:C.gold,fontWeight:700}}>
-            You are a viewer — ask the host to promote you to editor
-          </div>
-          <button style={{...Btn(C.gold,"#000"),padding:"7px 12px",fontSize:11,borderRadius:8}} onClick={()=>setShowShare(true)}>Members</button>
-        </div>
-      )}
-
-      {/* NAME MODAL */}
-      {showNameModal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div className="slide-in" style={{background:C.surface,border:"1px solid "+C.border,borderRadius:18,padding:"28px 22px 22px",width:"100%",maxWidth:340,textAlign:"center"}}>
-            <div style={{fontSize:32,marginBottom:12}}>🏓</div>
-            <div style={{fontSize:20,fontWeight:900,color:C.white,marginBottom:6}}>Welcome to EL PONG</div>
-            <div style={{fontSize:13,color:C.muted,marginBottom:22,lineHeight:1.6}}>Enter your name so everyone knows who you are in the tournament.</div>
-            <input
-              style={{...inp(),fontSize:15,padding:"12px 14px",marginBottom:14,textAlign:"center"}}
-              placeholder="Your name..."
-              value={nameInput}
-              autoFocus
-              onChange={e=>setNameInput(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&saveUsername()}
-            />
-            <button style={{...Btn(nameInput.trim()?C.white:C.hi,nameInput.trim()?C.bg:C.muted),width:"100%",padding:"13px",fontSize:15,borderRadius:10,marginBottom:8}} onClick={saveUsername} disabled={!nameInput.trim()}>
-              Join as {nameInput.trim()||"..."}
-            </button>
-            {myName&&<button style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",padding:"6px"}} onClick={()=>setShowNameModal(false)}>Cancel (keep "{myName}")</button>}
-          </div>
-        </div>
-      )}
-
-      {/* JOIN CODE MODAL */}
-      {showJoinCode&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div className="slide-in" style={{background:C.surface,border:"1px solid "+C.border,borderRadius:18,padding:"26px 20px 20px",width:"100%",maxWidth:340,textAlign:"center"}}>
-            <div style={{fontSize:28,marginBottom:10}}>🔑</div>
-            <div style={{fontSize:19,fontWeight:900,color:C.white,marginBottom:6}}>Enter Join Code</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:20,lineHeight:1.6}}>Ask the tournament creator for their 6-character code.</div>
-            <input
-              style={{...inp(),fontSize:26,padding:"14px",marginBottom:8,textAlign:"center",letterSpacing:"0.3em",fontWeight:900,fontFamily:"monospace",textTransform:"uppercase"}}
-              placeholder="ABC123"
-              value={joinCodeInput}
-              maxLength={6}
-              autoFocus
-              onChange={e=>setJoinCodeInput(e.target.value.toUpperCase())}
-              onKeyDown={e=>e.key==="Enter"&&joinByCode()}
-            />
-            {joinCodeError&&<div style={{fontSize:12,color:C.lose,marginBottom:10,padding:"6px 10px",background:C.lose+"11",borderRadius:7}}>{joinCodeError}</div>}
-            <button
-              style={{...Btn(joinCodeInput.length===6?C.gold:C.hi,joinCodeInput.length===6?C.bg:C.muted),width:"100%",padding:"13px",fontSize:15,borderRadius:10,marginBottom:8,opacity:joinCodeLoading?0.6:1}}
-              disabled={joinCodeInput.length!==6||joinCodeLoading}
-              onClick={joinByCode}
-            >
-              {joinCodeLoading?"Searching...":"Join Tournament"}
-            </button>
-            <button style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",padding:"6px"}} onClick={()=>{setShowJoinCode(false);setJoinCodeInput("");setJoinCodeError("")}}>Cancel</button>
-          </div>
-        </div>
-      )}
-
+      
       {toast&&<div className="toast-pop" style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:C.el,border:"1px solid "+C.border,color:C.white,fontWeight:700,fontSize:13,padding:"10px 20px",borderRadius:28,boxShadow:"0 4px 24px rgba(0,0,0,0.5)",zIndex:999,whiteSpace:"nowrap"}}>{toast}</div>}
     </div>
   );
